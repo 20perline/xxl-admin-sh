@@ -4,6 +4,7 @@ from asyncio import create_task, gather, run as aiorun
 from rich import print, print_json
 from rich.table import Table
 from rich.console import Console
+from rich.prompt import Prompt
 from typing import Annotated, Dict, Optional, List
 from .core import XxlContext, XxlCmd, highlight
 from .client import XxlAdminClient
@@ -27,9 +28,7 @@ job_app = typer.Typer(help="任务管理")
 app.add_typer(job_app, name="job")
 
 
-def get_xxl_clients(
-    cmd_ctx: XxlContext, all_mode: bool = False, clusters: List[str] = None
-):
+def get_xxl_clients(cmd_ctx: XxlContext, all_mode: bool = False, clusters: List[str] = None):
     settings = cmd_ctx.settings
     default_env = settings.default_env
     credentials = settings.credentials[default_env]
@@ -42,9 +41,7 @@ def get_xxl_clients(
         runtime_clusters = [settings.default_cluster]
 
     return {
-        cluster: XxlAdminClient(
-            base_url, username=credentials.username, password=credentials.password
-        )
+        cluster: XxlAdminClient(base_url, username=credentials.username, password=credentials.password)
         for cluster, base_url in credentials.clusters.items()
         if cluster in runtime_clusters
     }
@@ -54,7 +51,7 @@ def get_xxl_clients(
 def goto(
     ctx: typer.Context,
     env_or_cluster: Annotated[str, typer.Argument(help="环境或集群（当作集群时不能指定第二个参数）")],
-    cluster: Annotated[str, typer.Argument(help="集群")] = "",
+    cluster: Annotated[str, typer.Argument(help="集群")] = ""
 ):
     """
     切换环境或集群
@@ -87,9 +84,9 @@ def show_config(ctx: typer.Context):
 @group_app.command("list")
 def list_group(
     ctx: typer.Context,
-    name: Annotated[str, typer.Argument()] = "",
-    all_mode: Annotated[bool, typer.Option("-a", "--all")] = False,
-    clusters: Annotated[Optional[List[str]], typer.Option("-c", "--cluster")] = None,
+    name: Annotated[str, typer.Argument(help="执行器名称，支持模糊匹配")] = "",
+    all_mode: Annotated[bool, typer.Option("-a", "--all", help="是否在所有集群执行")] = False,
+    clusters: Annotated[Optional[List[str]], typer.Option("-c", "--cluster", help="仅在特定集群上执行（支持多个）")] = None
 ):
     """
     查询执行器列表
@@ -102,9 +99,7 @@ def list_group(
         login_ok = any(await gather(*tasks))
         if not login_ok:
             return
-        tasks = [
-            create_task(c.list_group(name=name), name=tn) for tn, c in clients.items()
-        ]
+        tasks = [create_task(c.list_group(name=name), name=tn) for tn, c in clients.items()]
         await gather(*tasks)
         for t in tasks:
             cluster = t.get_name()
@@ -131,10 +126,10 @@ def list_group(
 @job_app.command("list")
 def list_job(
     ctx: typer.Context,
-    name: Annotated[str, typer.Argument()] = "",
-    group: Annotated[int, typer.Option("-g", "--group")] = -1,
-    all_mode: Annotated[bool, typer.Option("-a", "--all")] = False,
-    clusters: Annotated[Optional[List[str]], typer.Option("-c", "--cluster")] = None,
+    name: Annotated[str, typer.Argument(help="任务名称，支持模糊匹配")] = "",
+    group: Annotated[int, typer.Option("-g", "--group", help="执行器ID")] = -1,
+    all_mode: Annotated[bool, typer.Option("-a", "--all", help="是否在所有集群执行")] = False,
+    clusters: Annotated[Optional[List[str]], typer.Option("-c", "--cluster", help="仅在特定集群上执行（支持多个）")] = None
 ):
     """
     查询任务列表
@@ -147,10 +142,7 @@ def list_job(
         login_ok = any(await gather(*tasks))
         if not login_ok:
             return
-        tasks = [
-            create_task(c.list_job(executor=name, job_group=job), name=tn)
-            for tn, c in clients.items()
-        ]
+        tasks = [create_task(c.list_job(executor=name, job_group=job), name=tn) for tn, c in clients.items()]
         await gather(*tasks)
         for t in tasks:
             cluster = t.get_name()
@@ -167,9 +159,7 @@ def list_job(
                     str(job["id"]),
                     str(job["jobGroup"]),
                     job["jobDesc"],
-                    highlight(
-                        f'{job["glueType"]} {job["executorHandler"]}', name, "red"
-                    ),
+                    highlight(f'{job["glueType"]}: {job["executorHandler"]}', name, "red"),
                     job["scheduleConf"] if "scheduleConf" in job else job["jobCron"],
                     job["author"],
                     "关闭" if job["triggerStatus"] == 0 else "启动",
@@ -180,23 +170,80 @@ def list_job(
     aiorun(_list_job(clients, name, group))
 
 
+async def search_and_match_job(clients: Dict[str, XxlAdminClient], executor: str) -> Dict[str, Dict]:
+    """
+    按名称匹配任务
+    """
+    tasks = [create_task(c.search_job(executor=executor), name=tn) for tn, c in clients.items()]
+    await gather(*tasks)
+    search_res_map = {}
+    res_map = {}
+    for t in tasks:
+        cluster = t.get_name()
+        search_res_map[cluster] = t.result()
+
+    for cluster, jobs in search_res_map.items():
+        if len(jobs) == 1:
+            res_map[cluster] = jobs[0]
+        elif len(jobs) == 0:
+            res_map[cluster] = {"id": -1, "executorHandler": f"{executor}??"}
+        else:
+            for i, j in enumerate(jobs):
+                status = "关闭" if j["triggerStatus"] == 0 else "启动"
+                print(f"{i}: {j['jobDesc']}(执行器ID[{j['jobGroup']}]) {status}")
+            choice_idx = Prompt.ask(":warning:存在相似名称任务，请确认你想要执行的任务序号")
+            if choice_idx.isnumeric():
+                idx = int(choice_idx)
+            else:
+                print(f":warning:集群{cluster}未能为[magenta]{executor}[/magenta]指定任务ID，将被跳过")
+                idx = -1
+            if idx >= 0 and idx < len(jobs):
+                res_map[cluster] = jobs[idx]
+            else:
+                res_map[cluster] = {"id": -1, "executorHandler": f"{executor}??"}
+
+    return res_map
+
+
 @job_app.command("run")
 def run_job(
     ctx: typer.Context,
-    executor: Annotated[str, typer.Argument()],
-    all_mode: Annotated[bool, typer.Option("-a", "--all")] = False,
-    clusters: Annotated[Optional[List[str]], typer.Option("-c", "--cluster")] = None,
+    executor: Annotated[str, typer.Argument(help="任务名称，支持模糊匹配")],
+    param: Annotated[str, typer.Option("-p", "--param", help="任务参数")] = "",
+    address: Annotated[str, typer.Option("-t", "--target", help="机器地址")] = None,
+    all_mode: Annotated[bool, typer.Option("-a", "--all", help="是否在所有集群执行")] = False,
+    clusters: Annotated[Optional[List[str]], typer.Option("-c", "--cluster", help="仅在特定集群上执行（支持多个）")] = None
 ):
     """
     执行指定任务
     """
-    pass
+    cmd_ctx: XxlContext = ctx.obj
+    clients = get_xxl_clients(cmd_ctx=cmd_ctx, all_mode=all_mode, clusters=clusters)
+
+    async def _run_job(clients: Dict[str, XxlAdminClient], executor: str, param: str = "", address: str = None):
+        cluster_job_map = await search_and_match_job(clients, executor)
+        tasks = [
+            create_task(
+                c.trigger_job(job_id=cluster_job_map[tn]["id"], param=param, address_list=address),
+                name=tn,
+            )
+            for tn, c in clients.items()
+        ]
+        await gather(*tasks)
+        for t in tasks:
+            cluster = t.get_name()
+            handler = cluster_job_map[cluster]['executorHandler']
+            if t.result():
+                res = "[green]OK[/green]"
+            else:
+                res = "[red]FAILED[/red]"
+            print(f"{cluster.upper()}集群 [magenta]{handler}[/magenta] 触发结果: {res}")
+
+    aiorun(_run_job(clients, executor, param, address))
 
 
 @job_app.command("add")
-def add_job(
-    ctx: typer.Context
-):
+def add_job(ctx: typer.Context):
     """
     创建新任务
     """
@@ -206,27 +253,71 @@ def add_job(
 @job_app.command("disable")
 def disable_job(
     ctx: typer.Context,
-    name: Annotated[str, typer.Argument()] = "",
-    all_mode: Annotated[bool, typer.Option("-a", "--all")] = False,
-    clusters: Annotated[Optional[List[str]], typer.Option("-c", "--cluster")] = None,
+    executor: Annotated[str, typer.Argument(help="任务名称，支持模糊匹配")],
+    all_mode: Annotated[bool, typer.Option("-a", "--all", help="是否在所有集群执行")] = False,
+    clusters: Annotated[Optional[List[str]], typer.Option("-c", "--cluster", help="仅在特定集群上执行（支持多个）")] = None
 ):
     """
-    创建新任务
+    停止任务
     """
-    pass
+    cmd_ctx: XxlContext = ctx.obj
+    clients = get_xxl_clients(cmd_ctx=cmd_ctx, all_mode=all_mode, clusters=clusters)
+
+    async def _disable_job(clients: Dict[str, XxlAdminClient], executor: str):
+        cluster_job_map = await search_and_match_job(clients, executor)
+        tasks = [
+            create_task(
+                c.stop_job(job_id=cluster_job_map[tn]["id"]),
+                name=tn,
+            )
+            for tn, c in clients.items()
+        ]
+        await gather(*tasks)
+        for t in tasks:
+            cluster = t.get_name()
+            handler = cluster_job_map[cluster]['executorHandler']
+            if t.result():
+                res = "[green]OK[/green]"
+            else:
+                res = "[red]FAILED[/red]"
+            print(f"{cluster.upper()}集群 [magenta]{handler}[/magenta] 执行结果: {res}")
+
+    aiorun(_disable_job(clients, executor))
 
 
 @job_app.command("enable")
 def enable_job(
     ctx: typer.Context,
-    name: Annotated[str, typer.Argument()] = "",
-    all_mode: Annotated[bool, typer.Option("-a", "--all")] = False,
-    clusters: Annotated[Optional[List[str]], typer.Option("-c", "--cluster")] = None,
+    executor: Annotated[str, typer.Argument()],
+    all_mode: Annotated[bool, typer.Option("-a", "--all", help="是否在所有集群执行")] = False,
+    clusters: Annotated[Optional[List[str]], typer.Option("-c", "--cluster", help="仅在特定集群上执行（支持多个）")] = None
 ):
     """
-    创建新任务
+    启动任务
     """
-    pass
+    cmd_ctx: XxlContext = ctx.obj
+    clients = get_xxl_clients(cmd_ctx=cmd_ctx, all_mode=all_mode, clusters=clusters)
+
+    async def _enable_job(clients: Dict[str, XxlAdminClient], executor: str):
+        cluster_job_map = await search_and_match_job(clients, executor)
+        tasks = [
+            create_task(
+                c.start_job(job_id=cluster_job_map[tn]["id"]),
+                name=tn,
+            )
+            for tn, c in clients.items()
+        ]
+        await gather(*tasks)
+        for t in tasks:
+            cluster = t.get_name()
+            handler = cluster_job_map[cluster]['executorHandler']
+            if t.result():
+                res = "[green]OK[/green]"
+            else:
+                res = "[red]FAILED[/red]"
+            print(f"{cluster.upper()}集群 [magenta]{handler}[/magenta] 执行结果: {res}")
+
+    aiorun(_enable_job(clients, executor))
 
 
 cmd = XxlCmd(typer=app, ctx=XxlContext(name=app_name))

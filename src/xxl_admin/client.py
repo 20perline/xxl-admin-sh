@@ -8,9 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 class XxlAdminClient(object):
-    def __init__(
-        self, base_url, username: str = "", password: str = "", cookie_dir: str = None
-    ) -> None:
+    def __init__(self, base_url, username: str = "", password: str = "", cookie_dir: str = None) -> None:
         self.base_url = base_url
         self.username = username
         self.password = password
@@ -44,17 +42,13 @@ class XxlAdminClient(object):
         self._client.cookies.jar.save(ignore_discard=True, ignore_expires=False)
         return True
 
-    async def list_group(
-        self, name: str = "", title: str = "", start: int = 0, length: int = 30
-    ) -> list:
+    async def list_group(self, name: str = "", title: str = "", start: int = 0, length: int = 30) -> list:
         payload = {"start": start, "length": length}
         if len(name) > 0:
             payload["appname"] = name
         if len(title) > 0:
             payload["title"] = title
-        response = await self._client.post(
-            "/xxl-job-admin/jobgroup/pageList", data=payload
-        )
+        response = await self._client.post("/xxl-job-admin/jobgroup/pageList", data=payload)
         if response.status_code == 200:
             return response.json()["data"]
         return []
@@ -78,22 +72,41 @@ class XxlAdminClient(object):
             "start": start,
             "length": length,
         }
-        response = await self._client.post(
-            "/xxl-job-admin/jobinfo/pageList", data=payload
-        )
+        response = await self._client.post("/xxl-job-admin/jobinfo/pageList", data=payload)
         if response.status_code == 200:
             return response.json()["data"]
         return []
 
-    async def trigger_job(
-        self, job_id: int, param: str = None, address_list: str = None
-    ) -> bool:
+    async def search_job(self, executor: str) -> list:
+        login_ok = await self.login()
+        if not login_ok:
+            return
+        data = await self.list_job(executor=executor)
+        return data
+
+    async def trigger_job(self, job_id: int, param: str = None, address_list: str = None) -> bool:
         if job_id <= 0:
             return False
         payload = {"id": job_id, "executorParam": param, "addressList": address_list}
-        response = await self._client.post(
-            "/xxl-job-admin/jobinfo/pageList", data=payload
-        )
+        response = await self._client.post("/xxl-job-admin/jobinfo/trigger", data=payload)
+        if response.status_code != 200:
+            return False
+        return response.json()["code"] == 200
+
+    async def start_job(self, job_id: int) -> bool:
+        if job_id <= 0:
+            return False
+        payload = {"id": job_id}
+        response = await self._client.post("/xxl-job-admin/jobinfo/start", data=payload)
+        if response.status_code != 200:
+            return False
+        return response.json()["code"] == 200
+
+    async def stop_job(self, job_id: int) -> bool:
+        if job_id <= 0:
+            return False
+        payload = {"id": job_id}
+        response = await self._client.post("/xxl-job-admin/jobinfo/stop", data=payload)
         if response.status_code != 200:
             return False
         return response.json()["code"] == 200
