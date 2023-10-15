@@ -1,6 +1,6 @@
 import re
 from typer import Typer, get_app_dir
-from typing import Dict, List, Set
+from typing import Dict, Set
 from pathlib import Path
 from pydantic import BaseModel
 from typer_cmd.shell import TyperCmd, CmdContext
@@ -23,12 +23,10 @@ class XxlEnvSettings(BaseModel):
 
 class XxlSettings(BaseModel):
     name: str = "xxl"
+    env_list: Set[str] = {"test"}
     default_env: str = "test"
     default_cluster: str = "cn"
     credentials: Dict[str, XxlEnvSettings] = {"cn": XxlEnvSettings()}
-
-    def env_list(self) -> List[str]:
-        return list(self.credentials.keys())
 
     def cluster_list(self) -> Set[str]:
         clusters = set()

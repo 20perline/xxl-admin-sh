@@ -6,7 +6,7 @@ from rich.table import Table
 from rich.console import Console
 from rich.prompt import Prompt
 from typing import Annotated, Dict, Optional, List
-from .core import XxlContext, XxlCmd, highlight
+from .core import XxlContext, XxlCmd, XxlEnvSettings, highlight
 from .client import XxlAdminClient
 
 
@@ -51,15 +51,17 @@ def get_xxl_clients(cmd_ctx: XxlContext, all_mode: bool = False, clusters: List[
 def goto(
     ctx: typer.Context,
     env_or_cluster: Annotated[str, typer.Argument(help="环境或集群（当作集群时不能指定第二个参数）")],
-    cluster: Annotated[str, typer.Argument(help="集群")] = ""
+    cluster: Annotated[str, typer.Argument(help="集群")] = "",
 ):
     """
     切换环境或集群
     """
     cmd_ctx: XxlContext = ctx.obj
     settings = cmd_ctx.settings
-    if env_or_cluster in settings.env_list():
+    if env_or_cluster in settings.env_list:
         settings.default_env = env_or_cluster
+        if len(cluster) == 0:
+            return
     elif env_or_cluster in settings.cluster_list():
         settings.default_cluster = env_or_cluster
         return
@@ -74,11 +76,71 @@ def goto(
 @config_app.command("show")
 def show_config(ctx: typer.Context):
     """
-    显示当前配置
+    显示当前完整配置
     """
     cmd_ctx: XxlContext = ctx.obj
     settings = cmd_ctx.settings
     print_json(settings.model_dump_json())
+
+
+@config_app.command("clusters")
+def show_clusters(ctx: typer.Context, show_all: Annotated[bool, typer.Option("-a", "--all", help="是否显示所有环境的")] = False):
+    """
+    集群列表
+    """
+    cmd_ctx: XxlContext = ctx.obj
+    settings = cmd_ctx.settings
+    env = settings.default_env
+    if show_all:
+        env = None
+    for _env, credential in settings.credentials.items():
+        if not env or _env == env:
+            table = Table(title=f"{_env.upper()}集群列表")
+            table.add_column("集群ID", justify="left", style="cyan")
+            table.add_column("集群地址", justify="right", style="green", no_wrap=True)
+            for cluster, host in credential.clusters.items():
+                table.add_row(cluster, host)
+            console = Console()
+            console.print(table)
+
+
+@config_app.command("add")
+def add_cluster(
+    ctx: typer.Context,
+    cluster: Annotated[str, typer.Argument(help="集群标识")],
+    host: Annotated[str, typer.Argument(help="集群地址")],
+):
+    """
+    新增集群
+    """
+    cmd_ctx: XxlContext = ctx.obj
+    settings = cmd_ctx.settings
+    env = settings.default_env
+    settings.credentials[env].clusters[cluster] = host
+    print(f"环境{env}新增/修改集群{cluster}成功")
+
+
+@config_app.command("env")
+def configure_env(
+    ctx: typer.Context,
+    env: Annotated[str, typer.Argument(help="环境标识（小写）")],
+    username: Annotated[str, typer.Argument(help="用户名")] = "",
+    password: Annotated[str, typer.Argument(help="密码")] = "",
+):
+    """
+    新建或更新环境，如果已存在则只更新用户密码（如果有）
+    """
+    cmd_ctx: XxlContext = ctx.obj
+    settings = cmd_ctx.settings
+    if env.lower() != env:
+        print("环境标识只支持小写")
+        return
+    if env not in settings.env_list:
+        settings.credentials[env] = XxlEnvSettings()
+    settings.env_list.add(env)
+    settings.credentials[env].username = username
+    settings.credentials[env].password = password
+    print(f"环境{env.upper()}设置成功")
 
 
 @group_app.command("list")
@@ -86,7 +148,7 @@ def list_group(
     ctx: typer.Context,
     name: Annotated[str, typer.Argument(help="执行器名称，支持模糊匹配")] = "",
     all_mode: Annotated[bool, typer.Option("-a", "--all", help="是否在所有集群执行")] = False,
-    clusters: Annotated[Optional[List[str]], typer.Option("-c", "--cluster", help="仅在特定集群上执行（支持多个）")] = None
+    clusters: Annotated[Optional[List[str]], typer.Option("-c", "--cluster", help="仅在特定集群上执行（支持多个）")] = None,
 ):
     """
     查询执行器列表
@@ -129,7 +191,7 @@ def list_job(
     name: Annotated[str, typer.Argument(help="任务名称，支持模糊匹配")] = "",
     group: Annotated[int, typer.Option("-g", "--group", help="执行器ID")] = -1,
     all_mode: Annotated[bool, typer.Option("-a", "--all", help="是否在所有集群执行")] = False,
-    clusters: Annotated[Optional[List[str]], typer.Option("-c", "--cluster", help="仅在特定集群上执行（支持多个）")] = None
+    clusters: Annotated[Optional[List[str]], typer.Option("-c", "--cluster", help="仅在特定集群上执行（支持多个）")] = None,
 ):
     """
     查询任务列表
@@ -212,7 +274,7 @@ def run_job(
     param: Annotated[str, typer.Option("-p", "--param", help="任务参数")] = "",
     address: Annotated[str, typer.Option("-t", "--target", help="机器地址")] = None,
     all_mode: Annotated[bool, typer.Option("-a", "--all", help="是否在所有集群执行")] = False,
-    clusters: Annotated[Optional[List[str]], typer.Option("-c", "--cluster", help="仅在特定集群上执行（支持多个）")] = None
+    clusters: Annotated[Optional[List[str]], typer.Option("-c", "--cluster", help="仅在特定集群上执行（支持多个）")] = None,
 ):
     """
     执行指定任务
@@ -232,7 +294,7 @@ def run_job(
         await gather(*tasks)
         for t in tasks:
             cluster = t.get_name()
-            handler = cluster_job_map[cluster]['executorHandler']
+            handler = cluster_job_map[cluster]["executorHandler"]
             if t.result():
                 res = "[green]OK[/green]"
             else:
@@ -255,7 +317,7 @@ def disable_job(
     ctx: typer.Context,
     executor: Annotated[str, typer.Argument(help="任务名称，支持模糊匹配")],
     all_mode: Annotated[bool, typer.Option("-a", "--all", help="是否在所有集群执行")] = False,
-    clusters: Annotated[Optional[List[str]], typer.Option("-c", "--cluster", help="仅在特定集群上执行（支持多个）")] = None
+    clusters: Annotated[Optional[List[str]], typer.Option("-c", "--cluster", help="仅在特定集群上执行（支持多个）")] = None,
 ):
     """
     停止任务
@@ -275,7 +337,7 @@ def disable_job(
         await gather(*tasks)
         for t in tasks:
             cluster = t.get_name()
-            handler = cluster_job_map[cluster]['executorHandler']
+            handler = cluster_job_map[cluster]["executorHandler"]
             if t.result():
                 res = "[green]OK[/green]"
             else:
@@ -290,7 +352,7 @@ def enable_job(
     ctx: typer.Context,
     executor: Annotated[str, typer.Argument()],
     all_mode: Annotated[bool, typer.Option("-a", "--all", help="是否在所有集群执行")] = False,
-    clusters: Annotated[Optional[List[str]], typer.Option("-c", "--cluster", help="仅在特定集群上执行（支持多个）")] = None
+    clusters: Annotated[Optional[List[str]], typer.Option("-c", "--cluster", help="仅在特定集群上执行（支持多个）")] = None,
 ):
     """
     启动任务
@@ -310,7 +372,7 @@ def enable_job(
         await gather(*tasks)
         for t in tasks:
             cluster = t.get_name()
-            handler = cluster_job_map[cluster]['executorHandler']
+            handler = cluster_job_map[cluster]["executorHandler"]
             if t.result():
                 res = "[green]OK[/green]"
             else:

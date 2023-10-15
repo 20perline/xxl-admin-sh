@@ -1,6 +1,6 @@
 [project]
 name = "xxl-admin-sh"
-version = "0.1.0"
+version = "0.0.1"
 description = "A shell utility for XXL-Admin"
 authors = [
     {name = "tanglh", email = "tlhk2@163.com"},
@@ -15,8 +15,8 @@ requires-python = ">=3.9"
 readme = "README.md"
 license = {text = "MIT"}
 
-[project.entry-points]
-console_scripts = {"xxl" = "xxl_admin.xxl:cmd.cmdloop"}
+[project.scripts]
+xxl = "xxl_admin.xxl:cmd.cmdloop"
 
 [build-system]
 requires = ["pdm-backend"]
