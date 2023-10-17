@@ -19,9 +19,9 @@ class XxlContext(object):
 
         self.client_pool = {}
         self.settings: XxlSettings = None
-        self._location: Path = settings_file
+        self.location: Path = settings_file
         self._settings_file_created = settings_file.exists()
-        self._last_updated_at = self._location.stat().st_mtime or 0
+        self._last_updated_at = self.location.stat().st_mtime or 0
 
     def load(self):
         if self.settings:
@@ -29,14 +29,14 @@ class XxlContext(object):
         if not self._settings_file_created:
             self.settings = XxlSettings()
         else:
-            self.settings = XxlSettings.model_validate_json(self._location.read_text())
+            self.settings = XxlSettings.model_validate_json(self.location.read_text())
 
     def save(self):
         # been changed since last loaded
-        mtime = self._location.stat().st_mtime
+        mtime = self.location.stat().st_mtime
         if mtime and mtime > self._last_updated_at:
             return
-        self._location.write_text(XxlSettings.model_dump_json(self.settings, exclude_unset=True, indent=4))
+        self.location.write_text(XxlSettings.model_dump_json(self.settings, exclude_unset=True, indent=4))
         self._settings_file_created = True
 
     def get_clients(self, all_mode: bool = False, clusters: List[str] = None) -> Dict[str, XxlAdminClient]:

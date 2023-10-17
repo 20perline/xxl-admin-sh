@@ -63,6 +63,7 @@ def show_config(ctx: typer.Context):
     """
     cmd_ctx: XxlContext = ctx.obj
     settings = cmd_ctx.settings
+    print(f"配置文件路径：{cmd_ctx.location}")
     print_json(settings.model_dump_json())
 
 
@@ -243,12 +244,12 @@ async def search_and_match_job(clients: Dict[str, XxlAdminClient], executor: str
         else:
             for i, j in enumerate(jobs):
                 status = "关闭" if j["triggerStatus"] == 0 else "启动"
-                print(f"{i}: {j['jobDesc']}(执行器ID[{j['jobGroup']}]) {status}")
-            choice_idx = Prompt.ask(":warning:存在相似名称任务，请确认你想要执行的任务序号")
+                print(f"{i}: {j['jobDesc']}(执行器ID[{j['jobGroup']}]) 当前状态：{status}")
+            choice_idx = Prompt.ask("[bold gold1]!!!存在相似名称任务，请确认你想要执行的任务序号[/bold gold1]")
+            print("\n")
             if choice_idx.isnumeric():
                 idx = int(choice_idx)
             else:
-                print(f":warning:集群{cluster}未能为[magenta]{executor}[/magenta]指定任务ID，将被跳过")
                 idx = -1
             if idx >= 0 and idx < len(jobs):
                 res_map[cluster] = jobs[idx]
@@ -285,11 +286,12 @@ def run_job(
         await gather(*tasks)
         for t in tasks:
             cluster = t.get_name()
+            match_id = cluster_job_map[cluster]["id"]
             handler = cluster_job_map[cluster]["executorHandler"]
             if t.result():
                 res = "[green]OK[/green]"
             else:
-                res = "[red]FAILED[/red]"
+                res = "[red]FAILED[/red]" if match_id > 0 else "[red]SKIPPED[/red]"
             print(f"{cluster.upper()}集群 [magenta]{handler}[/magenta] 触发结果: {res}")
 
     aiorun(_run_job(clients, executor, param, address))
@@ -303,7 +305,7 @@ def add_job(ctx: typer.Context):
     pass
 
 
-@job_app.command("disable")
+@job_app.command("off")
 def disable_job(
     ctx: typer.Context,
     executor: Annotated[str, typer.Argument(help="任务名称，支持模糊匹配")],
@@ -328,17 +330,18 @@ def disable_job(
         await gather(*tasks)
         for t in tasks:
             cluster = t.get_name()
+            match_id = cluster_job_map[cluster]["id"]
             handler = cluster_job_map[cluster]["executorHandler"]
             if t.result():
                 res = "[green]OK[/green]"
             else:
-                res = "[red]FAILED[/red]"
+                res = "[red]FAILED[/red]" if match_id > 0 else "[red]SKIPPED[/red]"
             print(f"{cluster.upper()}集群 [magenta]{handler}[/magenta] 执行结果: {res}")
 
     aiorun(_disable_job(clients, executor))
 
 
-@job_app.command("enable")
+@job_app.command("on")
 def enable_job(
     ctx: typer.Context,
     executor: Annotated[str, typer.Argument()],
@@ -363,11 +366,12 @@ def enable_job(
         await gather(*tasks)
         for t in tasks:
             cluster = t.get_name()
+            match_id = cluster_job_map[cluster]["id"]
             handler = cluster_job_map[cluster]["executorHandler"]
             if t.result():
                 res = "[green]OK[/green]"
             else:
-                res = "[red]FAILED[/red]"
+                res = "[red]FAILED[/red]" if match_id > 0 else "[red]SKIPPED[/red]"
             print(f"{cluster.upper()}集群 [magenta]{handler}[/magenta] 执行结果: {res}")
 
     aiorun(_enable_job(clients, executor))

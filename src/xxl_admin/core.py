@@ -1,4 +1,5 @@
 import shlex
+import click
 from typer import Typer
 from typer.main import get_group
 from typing import Tuple, List
@@ -54,6 +55,7 @@ class XxlShell(object):
         print("\n".join([xxl_sh_version, home, issues]), "\n")
 
     def start(self):
+        self.intro()
         self.ctx.load()
 
         session = PromptSession(
@@ -63,7 +65,6 @@ class XxlShell(object):
             complete_while_typing=True,
             enable_open_in_editor=False,
         )
-        self.intro()
 
         while True:
             try:
@@ -88,7 +89,10 @@ class XxlShell(object):
                 continue
             args = shlex.split(command)
             extra = {"obj": self.ctx}
-            self.typer(args=args, prog_name="", standalone_mode=False, **extra)
+            try:
+                self.typer(args=args, prog_name="", standalone_mode=False, **extra)
+            except click.ClickException as e:
+                print(f"异常：{e.message}")
 
         # save context after loop exit
         self.ctx.save()
