@@ -1,7 +1,7 @@
 [project]
 name = "xxl-admin-sh"
-version = "0.0.1"
 description = "A shell utility for XXL-Admin"
+dynamic = [ "version" ]
 authors = [
     {name = "tanglh", email = "tlhk2@163.com"},
 ]
@@ -9,14 +9,15 @@ dependencies = [
     "httpx>=0.25.0",
     "typer>=0.9.0",
     "pydantic>=2.4.2",
-    "typer-cmd>=0.0.2",
+    "prompt-toolkit>=3.0.39",
+    "rich>=13.6.0",
 ]
 requires-python = ">=3.9"
 readme = "README.md"
 license = {text = "MIT"}
 
 [project.scripts]
-xxl = "xxl_admin.xxl:cmd.cmdloop"
+xxl = "xxl_admin.xxl:shell.start"
 
 [build-system]
 requires = ["pdm-backend"]
@@ -29,5 +30,9 @@ test = [
 dev = [
 ]
 
+[tool.pdm.version]
+source = "file"
+path = "src/xxl_admin/__init__.py"
+
 [tool.pdm.scripts]
-xxl = {call = "xxl_admin.xxl:cmd.cmdloop"}
+xxl = {call = "xxl_admin.xxl:shell.start"}
