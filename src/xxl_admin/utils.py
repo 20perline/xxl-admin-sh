@@ -1,7 +1,6 @@
 import re
 import hashlib
-from typing import Dict
-from typer.main import TyperGroup
+import inspect
 
 
 def md5(string):
@@ -19,11 +18,22 @@ def highlight(str1, substr1, color):
     return str1
 
 
-def get_typer_commands(group: TyperGroup) -> Dict[str, Dict]:
-    _map = {}
-    for name, command in group.commands.items():
-        if not isinstance(command, TyperGroup):
-            _map[name] = None
-        else:
-            _map[name] = get_typer_commands(command)
-    return _map
+def generate_default_value(return_type):
+    if return_type is inspect.Signature.empty:
+        return None
+    elif return_type is bool:
+        return False
+    elif return_type is int:
+        return 0
+    elif return_type is float:
+        return 0.0
+    elif return_type is str:
+        return ""
+    elif return_type is list:
+        return []
+    elif return_type is dict:
+        return {}
+    elif return_type is tuple:
+        return ()
+    else:
+        return None

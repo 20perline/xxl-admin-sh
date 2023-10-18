@@ -1,12 +1,4 @@
-from prompt_toolkit.completion import (
-    CompleteEvent,
-    Completer,
-    Completion,
-    FuzzyWordCompleter,
-    WordCompleter,
-)
-from prompt_toolkit.contrib.regular_languages.completion import GrammarCompleter
-from prompt_toolkit.document import Document
+from prompt_toolkit.completion import FuzzyWordCompleter
 
 
 class MostRecentlyUsedFirstWordMixin:

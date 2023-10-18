@@ -12,7 +12,7 @@ class XxlSettings(BaseModel):
     env_list: Set[str] = {"test"}
     default_env: str = "test"
     default_cluster: str = "cn"
-    credentials: Dict[str, XxlEnvSettings] = {"cn": XxlEnvSettings()}
+    credentials: Dict[str, XxlEnvSettings] = {"test": XxlEnvSettings()}
 
     def cluster_list(self) -> Set[str]:
         clusters = set()

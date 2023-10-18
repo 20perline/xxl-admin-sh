@@ -1,7 +1,6 @@
 import shlex
 import click
 from typer import Typer
-from typer.main import get_group
 from typing import Tuple, List
 from pathlib import Path
 from prompt_toolkit import PromptSession
@@ -13,7 +12,6 @@ from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from . import __version__
 from .key_bindings import kb as key_bindings
 from .context import XxlContext
-from .utils import get_typer_commands
 
 
 class XxlShell(object):
@@ -23,8 +21,18 @@ class XxlShell(object):
         self.typer = typer
         self.ctx = XxlContext()
 
-        cmd_map = get_typer_commands(get_group(self.typer))
+        cmd_map = self._recur_get_commands(self.typer)
+        cmd_map["exit"] = cmd_map["quit"] = cmd_map["help"] = None
         self.completer = NestedCompleter.from_nested_dict(cmd_map)
+        self.intro()
+
+    def _recur_get_commands(self, typer: Typer):
+        cmd_map = {}
+        for cmd_info in typer.registered_commands:
+            cmd_map[cmd_info.name] = None
+        for group in typer.registered_groups:
+            cmd_map[group.name] = self._recur_get_commands(group.typer_instance)
+        return cmd_map
 
     def get_prompt_style(self) -> Tuple[List[Tuple], Style]:
         style = Style.from_dict(
@@ -55,7 +63,7 @@ class XxlShell(object):
         print("\n".join([xxl_sh_version, home, issues]), "\n")
 
     def start(self):
-        self.intro()
+
         self.ctx.load()
 
         session = PromptSession(

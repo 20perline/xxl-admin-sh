@@ -17,11 +17,10 @@ class XxlContext(object):
                 Path(settings_file) if settings_file.endswith(".json") else Path(settings_file) / self.SETTINGS_FILENAME
             )
 
-        self.client_pool = {}
         self.settings: XxlSettings = None
         self.location: Path = settings_file
         self._settings_file_created = settings_file.exists()
-        self._last_updated_at = self.location.stat().st_mtime or 0
+        self._last_updated_at = self.location.stat().st_mtime if self._settings_file_created else 0
 
     def load(self):
         if self.settings:
@@ -33,10 +32,10 @@ class XxlContext(object):
 
     def save(self):
         # been changed since last loaded
-        mtime = self.location.stat().st_mtime
+        mtime = self.location.stat().st_mtime if self._settings_file_created else 0
         if mtime and mtime > self._last_updated_at:
             return
-        self.location.write_text(XxlSettings.model_dump_json(self.settings, exclude_unset=True, indent=4))
+        self.location.write_text(self.settings.model_dump_json(exclude_none=True, indent=4))
         self._settings_file_created = True
 
     def get_clients(self, all_mode: bool = False, clusters: List[str] = None) -> Dict[str, XxlAdminClient]:
@@ -53,19 +52,8 @@ class XxlContext(object):
         else:
             runtime_clusters = [settings.default_cluster]
 
-        clients = {}
-        for cluster, _ in credential.clusters.items():
-            if cluster in runtime_clusters:
-                clients[cluster] = self.get_client_for_cluster(default_env, cluster)
-        return clients
-
-    def get_client_for_cluster(self, env: str, cluster: str):
-        ck = f"{env}:{cluster}"
-        if ck in self.client_pool:
-            return self.client_pool[ck]
-        else:
-            base_url = self.settings.credentials[env].clusters[cluster]
-            credential = self.settings.credentials[env]
-            client = XxlAdminClient(base_url, username=credential.username, password=credential.password)
-            self.client_pool[ck] = client
-            return self.client_pool[ck]
+        return {
+            cluster: XxlAdminClient(base_url, username=credential.username, password=credential.password)
+            for cluster, base_url in credential.clusters.items()
+            if cluster in runtime_clusters
+        }

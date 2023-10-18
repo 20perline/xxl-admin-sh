@@ -204,7 +204,7 @@ def list_job(
             table.add_column("ID", justify="left", style="cyan")
             table.add_column("执行器ID", justify="left", style="cyan")
             table.add_column("描述", justify="left", style="cyan")
-            table.add_column("运行模式", justify="center", style="green")
+            table.add_column("运行模式", justify="center", style="green", no_wrap=True)
             table.add_column("调度类型", style="magenta")
             table.add_column("负责人", justify="right", style="green")
             table.add_column("状态", justify="right", style="green")
