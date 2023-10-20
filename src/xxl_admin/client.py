@@ -100,6 +100,29 @@ class XxlAdminClient(object):
         return []
 
     @_required_login
+    async def job_logs(
+        self,
+        job_id: int,
+        job_group: int = -1,
+        log_status: int = -1,
+        filter_time: str = "",
+        start: int = 0,
+        length: int = 30,
+    ) -> list:
+        payload = {
+            "jobId": job_id,
+            "jobGroup": job_group,
+            "logStatus": log_status,
+            "filterTime": filter_time,
+            "start": start,
+            "length": length,
+        }
+        response = await self._client.post("/xxl-job-admin/joblog/pageList", data=payload)
+        if response.status_code == 200:
+            return response.json()["data"]
+        return []
+
+    @_required_login
     async def search_job(self, executor: str) -> list:
         data = await self.list_job(executor=executor)
         return data

@@ -1,5 +1,9 @@
+import asyncio
+import arrow
+import inspect
 import typer
-from asyncio import create_task, gather, run as aiorun
+from asyncio import create_task, gather
+from functools import wraps
 from rich import print, print_json
 from rich.table import Table
 from rich.console import Console
@@ -13,6 +17,16 @@ from .client import XxlAdminClient
 
 
 __all__ = ["app"]
+
+
+def coroutine_cmd(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if inspect.iscoroutinefunction(f):
+            return asyncio.run(f(*args, **kwargs))
+        return f(*args, **kwargs)
+
+    return wrapper
 
 
 app = typer.Typer(
@@ -144,7 +158,8 @@ def env_set(
 
 
 @group_app.command("list")
-def list_group(
+@coroutine_cmd
+async def list_group(
     ctx: typer.Context,
     name: Annotated[str, typer.Argument(help="执行器名称，支持模糊匹配")] = "",
     all_mode: Annotated[bool, typer.Option("-a", "--all", help="是否在所有集群执行")] = False,
@@ -156,33 +171,31 @@ def list_group(
     cmd_ctx: XxlContext = ctx.obj
     clients = cmd_ctx.get_clients(all_mode=all_mode, clusters=clusters)
 
-    async def _list_group(clients: Dict[str, XxlAdminClient], name: str):
-        tasks = [create_task(c.list_group(name=name), name=tn) for tn, c in clients.items()]
-        await gather(*tasks)
-        for t in tasks:
-            cluster = t.get_name()
-            table = Table(title=f"{cluster.upper()}执行器列表")
-            table.add_column("ID", justify="left", style="cyan")
-            table.add_column("AppName", justify="left", style="cyan")
-            table.add_column("名称", style="magenta")
-            table.add_column("注册方式", justify="right", style="green")
-            table.add_column("机器地址", justify="right", style="green")
-            for group in t.result():
-                table.add_row(
-                    str(group["id"]),
-                    highlight(group["appname"], name, "red"),
-                    group["title"],
-                    "自动" if group["addressType"] == 0 else "手动",
-                    group["addressList"],
-                )
-            console = Console()
-            console.print(table)
-
-    aiorun(_list_group(clients, name))
+    tasks = [create_task(c.list_group(name=name), name=tn) for tn, c in clients.items()]
+    await gather(*tasks)
+    for t in tasks:
+        cluster = t.get_name()
+        table = Table(title=f"{cluster.upper()}执行器列表")
+        table.add_column("ID", justify="left", style="cyan")
+        table.add_column("AppName", justify="left", style="cyan")
+        table.add_column("名称", style="magenta")
+        table.add_column("注册方式", justify="right", style="green")
+        table.add_column("机器地址", justify="right", style="green")
+        for group in t.result():
+            table.add_row(
+                str(group["id"]),
+                highlight(group["appname"], name, "red"),
+                group["title"],
+                "自动" if group["addressType"] == 0 else "手动",
+                group["addressList"],
+            )
+        console = Console()
+        console.print(table)
 
 
 @job_app.command("list")
-def list_job(
+@coroutine_cmd
+async def list_job(
     ctx: typer.Context,
     name: Annotated[str, typer.Argument(help="任务名称，支持模糊匹配")] = "",
     group: Annotated[int, typer.Option("-g", "--group", help="执行器ID")] = -1,
@@ -195,33 +208,39 @@ def list_job(
     cmd_ctx: XxlContext = ctx.obj
     clients = cmd_ctx.get_clients(all_mode=all_mode, clusters=clusters)
 
-    async def _list_job(clients: Dict[str, XxlAdminClient], name: str, job: int):
-        tasks = [create_task(c.list_job(executor=name, job_group=job), name=tn) for tn, c in clients.items()]
-        await gather(*tasks)
-        for t in tasks:
-            cluster = t.get_name()
-            table = Table(title=f"{cluster.upper()}任务列表")
-            table.add_column("ID", justify="left", style="cyan")
-            table.add_column("执行器ID", justify="left", style="cyan")
-            table.add_column("描述", justify="left", style="cyan")
-            table.add_column("运行模式", justify="center", style="green", no_wrap=True)
-            table.add_column("调度类型", style="magenta")
-            table.add_column("负责人", justify="right", style="green")
-            table.add_column("状态", justify="right", style="green")
-            for job in t.result():
-                table.add_row(
-                    str(job["id"]),
-                    str(job["jobGroup"]),
-                    job["jobDesc"],
-                    highlight(f'{job["glueType"]}: {job["executorHandler"]}', name, "red"),
-                    job["scheduleConf"] if "scheduleConf" in job else job["jobCron"],
-                    job["author"],
-                    "关闭" if job["triggerStatus"] == 0 else "启动",
-                )
-            console = Console()
-            console.print(table)
-
-    aiorun(_list_job(clients, name, group))
+    g_prefix = "_group"
+    group_tasks = [create_task(c.list_group(name=""), name=f"{g_prefix}{tn}") for tn, c in clients.items()]
+    job_tasks = [create_task(c.list_job(executor=name, job_group=group), name=tn) for tn, c in clients.items()]
+    tasks = group_tasks + job_tasks
+    await gather(*tasks)
+    group_names = {}
+    for gt in group_tasks:
+        for g in gt.result():
+            group_names[g["id"]] = g["appname"]
+    for t in job_tasks:
+        cluster = t.get_name()
+        table = Table(title=f"{cluster.upper()}任务列表")
+        table.add_column("ID", justify="left", style="cyan")
+        table.add_column("执行器", justify="left", style="cyan")
+        table.add_column("描述", justify="left", style="cyan")
+        table.add_column("运行模式", justify="center", style="green", no_wrap=True)
+        table.add_column("调度类型", style="magenta")
+        table.add_column("负责人", justify="right", style="green")
+        table.add_column("状态", justify="right", style="green")
+        for job in t.result():
+            group = group_names.get(job["jobGroup"], "")
+            group = f'{group}({job["jobGroup"]})'
+            table.add_row(
+                str(job["id"]),
+                group,
+                job["jobDesc"],
+                highlight(f'{job["glueType"]}: {job["executorHandler"]}', name, "red"),
+                job["scheduleConf"] if "scheduleConf" in job else job["jobCron"],
+                job["author"],
+                "关闭" if job["triggerStatus"] == 0 else "启动",
+            )
+        console = Console()
+        console.print(table)
 
 
 async def search_and_match_job(clients: Dict[str, XxlAdminClient], executor: str) -> Dict[str, Dict]:
@@ -260,7 +279,8 @@ async def search_and_match_job(clients: Dict[str, XxlAdminClient], executor: str
 
 
 @job_app.command("run")
-def run_job(
+@coroutine_cmd
+async def run_job(
     ctx: typer.Context,
     executor: Annotated[str, typer.Argument(help="任务名称，支持模糊匹配")],
     param: Annotated[str, typer.Option("-p", "--param", help="任务参数")] = "",
@@ -274,31 +294,29 @@ def run_job(
     cmd_ctx: XxlContext = ctx.obj
     clients = cmd_ctx.get_clients(all_mode=all_mode, clusters=clusters)
 
-    async def _run_job(clients: Dict[str, XxlAdminClient], executor: str, param: str = "", address: str = None):
-        cluster_job_map = await search_and_match_job(clients, executor)
-        tasks = [
-            create_task(
-                c.trigger_job(job_id=cluster_job_map[tn]["id"], param=param, address_list=address),
-                name=tn,
-            )
-            for tn, c in clients.items()
-        ]
-        await gather(*tasks)
-        for t in tasks:
-            cluster = t.get_name()
-            match_id = cluster_job_map[cluster]["id"]
-            handler = cluster_job_map[cluster]["executorHandler"]
-            if t.result():
-                res = "[green]OK[/green]"
-            else:
-                res = "[red]FAILED[/red]" if match_id > 0 else "[red]SKIPPED[/red]"
-            print(f"{cluster.upper()}集群 [magenta]{handler}[/magenta] 触发结果: {res}")
-
-    aiorun(_run_job(clients, executor, param, address))
+    cluster_job_map = await search_and_match_job(clients, executor)
+    tasks = [
+        create_task(
+            c.trigger_job(job_id=cluster_job_map[tn]["id"], param=param, address_list=address),
+            name=tn,
+        )
+        for tn, c in clients.items()
+    ]
+    await gather(*tasks)
+    for t in tasks:
+        cluster = t.get_name()
+        match_id = cluster_job_map[cluster]["id"]
+        handler = cluster_job_map[cluster]["executorHandler"]
+        if t.result():
+            res = "[green]OK[/green]"
+        else:
+            res = "[red]FAILED[/red]" if match_id > 0 else "[red]SKIPPED[/red]"
+        print(f"{cluster.upper()}集群 [magenta]{handler}[/magenta] 触发结果: {res}")
 
 
 @job_app.command("add")
-def add_job(ctx: typer.Context):
+@coroutine_cmd
+async def add_job(ctx: typer.Context):
     """
     创建新任务
     """
@@ -306,7 +324,8 @@ def add_job(ctx: typer.Context):
 
 
 @job_app.command("off")
-def disable_job(
+@coroutine_cmd
+async def disable_job(
     ctx: typer.Context,
     executor: Annotated[str, typer.Argument(help="任务名称，支持模糊匹配")],
     all_mode: Annotated[bool, typer.Option("-a", "--all", help="是否在所有集群执行")] = False,
@@ -318,31 +337,29 @@ def disable_job(
     cmd_ctx: XxlContext = ctx.obj
     clients = cmd_ctx.get_clients(all_mode=all_mode, clusters=clusters)
 
-    async def _disable_job(clients: Dict[str, XxlAdminClient], executor: str):
-        cluster_job_map = await search_and_match_job(clients, executor)
-        tasks = [
-            create_task(
-                c.stop_job(job_id=cluster_job_map[tn]["id"]),
-                name=tn,
-            )
-            for tn, c in clients.items()
-        ]
-        await gather(*tasks)
-        for t in tasks:
-            cluster = t.get_name()
-            match_id = cluster_job_map[cluster]["id"]
-            handler = cluster_job_map[cluster]["executorHandler"]
-            if t.result():
-                res = "[green]OK[/green]"
-            else:
-                res = "[red]FAILED[/red]" if match_id > 0 else "[red]SKIPPED[/red]"
-            print(f"{cluster.upper()}集群 [magenta]{handler}[/magenta] 执行结果: {res}")
-
-    aiorun(_disable_job(clients, executor))
+    cluster_job_map = await search_and_match_job(clients, executor)
+    tasks = [
+        create_task(
+            c.stop_job(job_id=cluster_job_map[tn]["id"]),
+            name=tn,
+        )
+        for tn, c in clients.items()
+    ]
+    await gather(*tasks)
+    for t in tasks:
+        cluster = t.get_name()
+        match_id = cluster_job_map[cluster]["id"]
+        handler = cluster_job_map[cluster]["executorHandler"]
+        if t.result():
+            res = "[green]OK[/green]"
+        else:
+            res = "[red]FAILED[/red]" if match_id > 0 else "[red]SKIPPED[/red]"
+        print(f"{cluster.upper()}集群 [magenta]{handler}[/magenta] 执行结果: {res}")
 
 
 @job_app.command("on")
-def enable_job(
+@coroutine_cmd
+async def enable_job(
     ctx: typer.Context,
     executor: Annotated[str, typer.Argument()],
     all_mode: Annotated[bool, typer.Option("-a", "--all", help="是否在所有集群执行")] = False,
@@ -354,27 +371,76 @@ def enable_job(
     cmd_ctx: XxlContext = ctx.obj
     clients = cmd_ctx.get_clients(all_mode=all_mode, clusters=clusters)
 
-    async def _enable_job(clients: Dict[str, XxlAdminClient], executor: str):
-        cluster_job_map = await search_and_match_job(clients, executor)
-        tasks = [
-            create_task(
-                c.start_job(job_id=cluster_job_map[tn]["id"]),
-                name=tn,
-            )
-            for tn, c in clients.items()
-        ]
-        await gather(*tasks)
-        for t in tasks:
-            cluster = t.get_name()
-            match_id = cluster_job_map[cluster]["id"]
-            handler = cluster_job_map[cluster]["executorHandler"]
-            if t.result():
-                res = "[green]OK[/green]"
-            else:
-                res = "[red]FAILED[/red]" if match_id > 0 else "[red]SKIPPED[/red]"
-            print(f"{cluster.upper()}集群 [magenta]{handler}[/magenta] 执行结果: {res}")
+    cluster_job_map = await search_and_match_job(clients, executor)
+    tasks = [
+        create_task(
+            c.start_job(job_id=cluster_job_map[tn]["id"]),
+            name=tn,
+        )
+        for tn, c in clients.items()
+    ]
+    await gather(*tasks)
+    for t in tasks:
+        cluster = t.get_name()
+        match_id = cluster_job_map[cluster]["id"]
+        handler = cluster_job_map[cluster]["executorHandler"]
+        if t.result():
+            res = "[green]OK[/green]"
+        else:
+            res = "[red]FAILED[/red]" if match_id > 0 else "[red]SKIPPED[/red]"
+        print(f"{cluster.upper()}集群 [magenta]{handler}[/magenta] 执行结果: {res}")
 
-    aiorun(_enable_job(clients, executor))
+
+@job_app.command("log")
+@coroutine_cmd
+async def show_job_log(
+    ctx: typer.Context,
+    executor: Annotated[str, typer.Argument(help="任务名称，支持模糊匹配")],
+    time_range: Annotated[str, typer.Argument(help="调度时间范围，如2 days ago等描述性语言，默认近1天")] = "1 days ago",
+    all_mode: Annotated[bool, typer.Option("-a", "--all", help="是否在所有集群执行")] = False,
+    clusters: Annotated[Optional[List[str]], typer.Option("-c", "--cluster", help="仅在特定集群上执行（支持多个）")] = None,
+):
+    """
+    查询任务日志
+    """
+    cmd_ctx: XxlContext = ctx.obj
+    clients = cmd_ctx.get_clients(all_mode=all_mode, clusters=clusters)
+
+    arw = arrow.utcnow().to("local")
+    start_time = arw.dehumanize(time_range)
+    arw_str = arw.format('YYYY-MM-DD HH:mm:ss')
+    start_time_str = start_time.format('YYYY-MM-DD HH:mm:ss')
+
+    cluster_job_map = await search_and_match_job(clients, executor)
+    tasks = [
+        create_task(
+            c.job_logs(job_id=cluster_job_map[tn]["id"], filter_time=f"{start_time_str} - {arw_str}"),
+            name=tn,
+        )
+        for tn, c in clients.items()
+    ]
+    await gather(*tasks)
+    for t in tasks:
+        cluster = t.get_name()
+        handler = cluster_job_map[cluster]["executorHandler"]
+        table = Table(title=f"{cluster.upper()} - {handler}调度日志")
+        table.add_column("ID", justify="left", style="cyan")
+        table.add_column("调度时间", justify="left", style="cyan")
+        table.add_column("调度结果", justify="left", style="cyan")
+        table.add_column("执行时间", justify="center", style="green", no_wrap=True)
+        table.add_column("执行参数", style="magenta")
+        table.add_column("执行结果", style="magenta")
+        for job in t.result():
+            table.add_row(
+                str(job["jobId"]),
+                job["triggerTime"],
+                "成功" if job["triggerCode"] == 200 else "失败",
+                job["handleTime"],
+                job["executorParam"],
+                "成功" if job["handleCode"] == 200 else "失败"
+            )
+        console = Console()
+        console.print(table)
 
 
 app.add_typer(config_app, name="config")
