@@ -36,7 +36,7 @@ app = typer.Typer(
     no_args_is_help=True,
     options_metavar="",
     add_completion=False,
-    add_help_option=False
+    add_help_option=False,
 )
 
 config_app = typer.Typer(help="配置管理")
@@ -316,11 +316,92 @@ async def run_job(
 
 @job_app.command("add")
 @coroutine_cmd
-async def add_job(ctx: typer.Context):
+async def add_job(
+    ctx: typer.Context,
+    executor: Annotated[str, typer.Option("--exec", help="JobHandler")],
+    group: Annotated[int, typer.Option("--group", help="执行器ID")],
+    cron: Annotated[str, typer.Option("--cron", help="Cron")],
+    title: Annotated[str, typer.Option("--title", help="任务标题")],
+    author: Annotated[str, typer.Option("--author", help="责任人")] = "",
+    all_mode: Annotated[bool, typer.Option("-a", "--all", help="是否在所有集群执行")] = False,
+    clusters: Annotated[Optional[List[str]], typer.Option("-c", "--cluster", help="仅在特定集群上执行（支持多个）")] = None,
+):
     """
     创建新任务
     """
-    pass
+    cmd_ctx: XxlContext = ctx.obj
+    settings = cmd_ctx.settings
+    if len(author) == 0:
+        author = settings.get_default_user()
+
+    clients = cmd_ctx.get_clients(all_mode=all_mode, clusters=clusters)
+    tasks = [
+        create_task(c.add_job(job_group=group, executor=executor, job_desc=title, cron=cron, author=author), name=tn)
+        for tn, c in clients.items()
+    ]
+    await gather(*tasks)
+    for t in tasks:
+        cluster = t.get_name()
+        if t.result():
+            res = "[green]OK[/green]"
+        else:
+            res = "[red]FAILED[/red]"
+        print(f"{cluster.upper()}集群 创建任务 [magenta]{executor}[/magenta] 结果: {res}")
+
+
+@job_app.command("update")
+@coroutine_cmd
+async def update_job(
+    ctx: typer.Context,
+    executor: Annotated[str, typer.Argument(help="JobHandler")],
+    cron: Annotated[str, typer.Option("--cron", help="Cron")] = None,
+    title: Annotated[str, typer.Option("--title", help="任务标题")] = None,
+    title_prefix: Annotated[str, typer.Option("--prefix", help="任务标题前缀")] = None,
+    author: Annotated[str, typer.Option("--author", help="责任人")] = None,
+    all_mode: Annotated[bool, typer.Option("-a", "--all", help="是否在所有集群执行")] = False,
+    clusters: Annotated[Optional[List[str]], typer.Option("-c", "--cluster", help="仅在特定集群上执行（支持多个）")] = None,
+):
+    """
+    更新任务
+    """
+    cmd_ctx: XxlContext = ctx.obj
+    settings = cmd_ctx.settings
+    if not author:
+        author = settings.get_default_user()
+
+    clients = cmd_ctx.get_clients(all_mode=all_mode, clusters=clusters)
+    cluster_job_map = await search_and_match_job(clients, executor)
+
+    tasks = []
+    for cluster, client in clients.items():
+        cur_job = cluster_job_map[cluster]
+        if cur_job["id"] <= 0:
+            continue
+        cron = cron or cur_job.get("jobCron", None) or cur_job.get("scheduleConf", None)
+        title = title or cur_job["jobDesc"]
+        title = f"{title_prefix}{title}" if title_prefix else title
+        author = author or cur_job["author"]
+        task = create_task(
+            client.update_job(
+                job_id=cur_job["id"],
+                job_group=cur_job["jobGroup"],
+                executor=cur_job["executorHandler"],
+                job_desc=title,
+                cron=cron,
+                author=author,
+            ),
+            name=cluster,
+        )
+        tasks.append(task)
+
+    await gather(*tasks)
+    for t in tasks:
+        cluster = t.get_name()
+        if t.result():
+            res = "[green]OK[/green]"
+        else:
+            res = "[red]FAILED[/red]"
+        print(f"{cluster.upper()}集群 更新任务 [magenta]{executor}[/magenta] 结果: {res}")
 
 
 @job_app.command("off")
@@ -408,8 +489,8 @@ async def show_job_log(
 
     arw = arrow.utcnow().to("local")
     start_time = arw.dehumanize(time_range)
-    arw_str = arw.format('YYYY-MM-DD HH:mm:ss')
-    start_time_str = start_time.format('YYYY-MM-DD HH:mm:ss')
+    arw_str = arw.format("YYYY-MM-DD HH:mm:ss")
+    start_time_str = start_time.format("YYYY-MM-DD HH:mm:ss")
 
     cluster_job_map = await search_and_match_job(clients, executor)
     tasks = [
@@ -437,7 +518,7 @@ async def show_job_log(
                 "成功" if job["triggerCode"] == 200 else "失败",
                 job["handleTime"],
                 job["executorParam"],
-                "成功" if job["handleCode"] == 200 else "失败"
+                "成功" if job["handleCode"] == 200 else "失败",
             )
         console = Console()
         console.print(table)

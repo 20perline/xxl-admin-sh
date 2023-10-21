@@ -35,6 +35,7 @@ class XxlAdminClient(object):
                 return_type = func_sig.return_annotation
                 return generate_default_value(return_type)
             return await func(self, *args, **kwargs)
+
         return wrapper
 
     async def login(self) -> bool:
@@ -70,6 +71,8 @@ class XxlAdminClient(object):
         if len(title) > 0:
             payload["title"] = title
         response = await self._client.post("/xxl-job-admin/jobgroup/pageList", data=payload)
+        logger.info(f"list group request: {response.request.url} {payload}")
+        logger.info(f"list group response: {response.text}")
         if response.status_code == 200:
             return response.json()["data"]
         return []
@@ -95,6 +98,8 @@ class XxlAdminClient(object):
             "length": length,
         }
         response = await self._client.post("/xxl-job-admin/jobinfo/pageList", data=payload)
+        logger.info(f"list job request: {response.request.url} {payload}")
+        logger.info(f"list job response: {response.text}")
         if response.status_code == 200:
             return response.json()["data"]
         return []
@@ -118,6 +123,8 @@ class XxlAdminClient(object):
             "length": length,
         }
         response = await self._client.post("/xxl-job-admin/joblog/pageList", data=payload)
+        logger.info(f"job logs request: {response.request.url} {payload}")
+        logger.info(f"job logs response: {response.text}")
         if response.status_code == 200:
             return response.json()["data"]
         return []
@@ -133,6 +140,8 @@ class XxlAdminClient(object):
             return False
         payload = {"id": job_id, "executorParam": param, "addressList": address_list}
         response = await self._client.post("/xxl-job-admin/jobinfo/trigger", data=payload)
+        logger.info(f"trigger job request: {response.request.url} {payload}")
+        logger.info(f"trigger job response: {response.text}")
         if response.status_code != 200:
             return False
         return response.json()["code"] == 200
@@ -143,6 +152,8 @@ class XxlAdminClient(object):
             return False
         payload = {"id": job_id}
         response = await self._client.post("/xxl-job-admin/jobinfo/start", data=payload)
+        logger.info(f"start job request: {response.request.url} {payload}")
+        logger.info(f"start job response: {response.text}")
         if response.status_code != 200:
             return False
         return response.json()["code"] == 200
@@ -153,6 +164,65 @@ class XxlAdminClient(object):
             return False
         payload = {"id": job_id}
         response = await self._client.post("/xxl-job-admin/jobinfo/stop", data=payload)
+        logger.info(f"stop job request: {response.request.url} {payload}")
+        logger.info(f"stop job response: {response.text}")
+        if response.status_code != 200:
+            return False
+        return response.json()["code"] == 200
+
+    @_required_login
+    async def add_job(self, job_group: int, job_desc: str, executor: str, cron: str, author: str) -> bool:
+        if job_group <= 0:
+            return False
+        payload = {
+            "jobGroup": job_group,
+            "jobDesc": job_desc,
+            "cronGen_display": cron,
+            "jobCron": cron,
+            "scheduleType": "CRON",  # 2.4.*
+            "scheduleConf": cron,  # 2.4.*
+            "glueType": "BEAN",
+            "executorHandler": executor,
+            "executorRouteStrategy": "FIRST",
+            "executorBlockStrategy": "SERIAL_EXECUTION",
+            "misfireStrategy": "DO_NOTHING",
+            "author": author,
+            "executorTimout": 0,
+            "executorFailRetryCount": 0,
+        }
+        response = await self._client.post("/xxl-job-admin/jobinfo/add", data=payload)
+        logger.info(f"add new job request: {response.request.url} {payload}")
+        logger.info(f"add new job response: {response.text}")
+        if response.status_code != 200:
+            return False
+        return response.json()["code"] == 200
+
+    @_required_login
+    async def update_job(
+        self, job_id: int, job_group: int, job_desc: str, executor: str, cron: str, author: str
+    ) -> bool:
+        if job_id <= 0 or job_group <= 0:
+            return False
+        payload = {
+            "id": job_id,
+            "jobGroup": job_group,
+            "jobDesc": job_desc,
+            "cronGen_display": cron,
+            "jobCron": cron,  # 2.2.*
+            "scheduleType": "CRON",  # 2.4.*
+            "scheduleConf": cron,  # 2.4.*
+            "glueType": "BEAN",
+            "executorHandler": executor,
+            "executorRouteStrategy": "FIRST",
+            "executorBlockStrategy": "SERIAL_EXECUTION",
+            "author": author,
+            "misfireStrategy": "DO_NOTHING",
+            "executorTimout": 0,
+            "executorFailRetryCount": 0,
+        }
+        response = await self._client.post("/xxl-job-admin/jobinfo/update", data=payload)
+        logger.info(f"update job request: {response.request.url} {payload}")
+        logger.info(f"update job response: {response.text}")
         if response.status_code != 200:
             return False
         return response.json()["code"] == 200

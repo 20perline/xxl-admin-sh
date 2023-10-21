@@ -1,5 +1,5 @@
 import shlex
-import click
+import logging
 from typer import Typer
 from typing import Tuple, List
 from pathlib import Path
@@ -12,6 +12,8 @@ from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from . import __version__
 from .key_bindings import kb as key_bindings
 from .context import XxlContext
+
+logger = logging.getLogger(__name__)
 
 
 class XxlShell(object):
@@ -75,6 +77,7 @@ class XxlShell(object):
         )
 
         while True:
+            logger.info("REPL waiting for command...")
             try:
                 prompt, style = self.get_prompt_style()
                 command = session.prompt(
@@ -84,10 +87,12 @@ class XxlShell(object):
                     enable_suspend=False,
                 )
             except KeyboardInterrupt:
+                logger.warning("KeyboardInterrupt!")
                 continue
             except EOFError:
                 break
             command = command.strip()
+            logger.info(f"[Command] {command}")
             if not command:
                 continue
             if command == "exit" or command == "quit":
@@ -99,8 +104,9 @@ class XxlShell(object):
             extra = {"obj": self.ctx}
             try:
                 self.typer(args=args, prog_name="", standalone_mode=False, **extra)
-            except click.ClickException as e:
-                print(f"异常：{e.message}")
+            except Exception as e:
+                logger.exception(e)
+                print(f"异常：{e}")
 
         # save context after loop exit
         self.ctx.save()

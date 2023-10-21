@@ -20,3 +20,6 @@ class XxlSettings(BaseModel):
             for cl in env.clusters.keys():
                 clusters.add(cl)
         return clusters
+
+    def get_default_user(self):
+        return self.credentials[self.default_env].username
