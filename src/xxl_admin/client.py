@@ -3,7 +3,6 @@ import inspect
 from httpx import AsyncClient
 from pathlib import Path
 from http.cookiejar import LWPCookieJar
-from getpass import getpass
 
 from .utils import md5, generate_default_value
 
@@ -48,8 +47,8 @@ class XxlAdminClient(object):
             logger.info("从本地Cookies加载会话成功")
             self.is_logged_in = True
             return True
-        username = self.username or input("用户名：")
-        password = self.password or getpass("密码：")
+        username = self.username
+        password = self.password
         if len(username) == 0 or len(password) == 0:
             logger.error("用户名密码不能为空")
             return False

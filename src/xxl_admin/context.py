@@ -2,6 +2,9 @@ import logging
 from pathlib import Path
 from typer import get_app_dir
 from typing import List, Dict
+import tkinter as tk
+from tkinter.simpledialog import askstring
+
 
 from .settings import XxlSettings
 from .client import XxlAdminClient
@@ -70,6 +73,13 @@ class XxlContext(object):
         else:
             runtime_clusters = [settings.default_cluster]
 
+        if len(credential.username) == 0:
+            credential.username = input('请输入用户名: ')
+        if len(credential.password) == 0:
+            root = tk.Tk()
+            root.withdraw()
+            credential.password = askstring('请输入密码', '密码:', show="*")
+            root.destroy()
         return {
             cluster: XxlAdminClient(base_url, username=credential.username, password=credential.password)
             for cluster, base_url in credential.clusters.items()

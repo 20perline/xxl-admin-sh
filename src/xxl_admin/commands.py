@@ -146,6 +146,8 @@ def env_set(
     """
     cmd_ctx: XxlContext = ctx.obj
     settings = cmd_ctx.settings
+    if len(env) == 0:
+        env = settings.default_env
     env = env.lower()
     if env not in settings.env_list:
         settings.credentials[env] = XxlEnvSettings()
@@ -154,7 +156,7 @@ def env_set(
         settings.credentials[env].username = username
     if len(password) > 0:
         settings.credentials[env].password = password
-    print(f"环境{env.upper()}设置成功")
+    print(f"环境 [green]{env.upper()}[/green] 设置成功")
 
 
 @group_app.command("list")
