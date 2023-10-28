@@ -22,6 +22,7 @@ class XxlContext(object):
                 Path(settings_file) if settings_file.endswith(".json") else Path(settings_file) / self.SETTINGS_FILENAME
             )
 
+        self.local_registry = None
         self.settings: XxlSettings = None
         self.location: Path = settings_file
         self._settings_file_created = settings_file.exists()
@@ -67,7 +68,7 @@ class XxlContext(object):
         if all_mode:
             runtime_clusters = list(credential.clusters.keys())
         elif clusters:
-            runtime_clusters = clusters
+            runtime_clusters = set(clusters)
         else:
             runtime_clusters = [settings.default_cluster]
 

@@ -1,6 +1,7 @@
 import asyncio
 import arrow
 import inspect
+import socket
 import typer
 from asyncio import create_task, gather
 from functools import wraps
@@ -298,10 +299,7 @@ async def run_job(
 
     cluster_job_map = await search_and_match_job(clients, executor)
     tasks = [
-        create_task(
-            c.trigger_job(job_id=cluster_job_map[tn]["id"], param=param, address_list=address),
-            name=tn,
-        )
+        create_task(c.trigger_job(job_id=cluster_job_map[tn]["id"], param=param, address_list=address), name=tn)
         for tn, c in clients.items()
     ]
     await gather(*tasks)
@@ -314,6 +312,46 @@ async def run_job(
         else:
             res = "[red]FAILED[/red]" if match_id > 0 else "[red]SKIPPED[/red]"
         print(f"{cluster.upper()}集群 [magenta]{handler}[/magenta] 触发结果: {res}")
+
+
+@job_app.command("debug")
+@coroutine_cmd
+async def debug_job(
+    ctx: typer.Context,
+    executor: Annotated[str, typer.Argument(help="任务名称，支持模糊匹配")],
+    param: Annotated[str, typer.Option("-p", "--param", help="任务参数")] = "",
+):
+    """
+    本地触发指定任务
+    """
+    cmd_ctx: XxlContext = ctx.obj
+    default_cluster = cmd_ctx.settings.default_cluster
+    clients = cmd_ctx.get_clients(all_mode=False, clusters=None)
+    address = cmd_ctx.local_registry
+    if address is None:
+        groups = await clients[default_cluster].list_group()
+        ip = socket.gethostbyname(socket.gethostname())
+        registry_list = set(
+            r for group in groups if group["registryList"] is not None for r in group["registryList"].split(",")
+        )
+        address = next((x for x in registry_list if ip in x), None)
+        # 缓存起来
+        cmd_ctx.local_registry = address
+    if not address:
+        print("本地执行器未找到，请确认是否注册成功")
+        return
+    cluster_job_map = await search_and_match_job(clients, executor)
+    if default_cluster not in cluster_job_map:
+        print(f"本地任务不存在 [red]{executor}[/red]")
+        return
+    job_id = cluster_job_map[default_cluster]["id"]
+
+    trigger_ok = await clients[default_cluster].trigger_job(job_id=job_id, param=param, address_list=address)
+    if trigger_ok:
+        res = "[green]OK[/green]"
+    else:
+        res = "[red]FAILED[/red]"
+    print(f"本地触发 [magenta]{executor}[/magenta] 结果: {res}")
 
 
 @job_app.command("add")
@@ -367,9 +405,6 @@ async def update_job(
     更新任务
     """
     cmd_ctx: XxlContext = ctx.obj
-    settings = cmd_ctx.settings
-    if not author:
-        author = settings.get_default_user()
 
     clients = cmd_ctx.get_clients(all_mode=all_mode, clusters=clusters)
     cluster_job_map = await search_and_match_job(clients, executor)
@@ -379,21 +414,15 @@ async def update_job(
         cur_job = cluster_job_map[cluster]
         if cur_job["id"] <= 0:
             continue
+        job_id = cur_job["id"]
+        job_group = cur_job["jobGroup"]
+        executor = cur_job["executorHandler"]
         cron = cron or cur_job.get("jobCron", None) or cur_job.get("scheduleConf", None)
         title = title or cur_job["jobDesc"]
         title = f"{title_prefix}{title}" if title_prefix else title
         author = author or cur_job["author"]
-        task = create_task(
-            client.update_job(
-                job_id=cur_job["id"],
-                job_group=cur_job["jobGroup"],
-                executor=cur_job["executorHandler"],
-                job_desc=title,
-                cron=cron,
-                author=author,
-            ),
-            name=cluster,
-        )
+
+        task = create_task(client.update_job(job_id, job_group, executor, title, cron, author), name=cluster)
         tasks.append(task)
 
     await gather(*tasks)
@@ -421,13 +450,7 @@ async def disable_job(
     clients = cmd_ctx.get_clients(all_mode=all_mode, clusters=clusters)
 
     cluster_job_map = await search_and_match_job(clients, executor)
-    tasks = [
-        create_task(
-            c.stop_job(job_id=cluster_job_map[tn]["id"]),
-            name=tn,
-        )
-        for tn, c in clients.items()
-    ]
+    tasks = [create_task(c.stop_job(job_id=cluster_job_map[tn]["id"]), name=tn) for tn, c in clients.items()]
     await gather(*tasks)
     for t in tasks:
         cluster = t.get_name()
@@ -455,13 +478,7 @@ async def enable_job(
     clients = cmd_ctx.get_clients(all_mode=all_mode, clusters=clusters)
 
     cluster_job_map = await search_and_match_job(clients, executor)
-    tasks = [
-        create_task(
-            c.start_job(job_id=cluster_job_map[tn]["id"]),
-            name=tn,
-        )
-        for tn, c in clients.items()
-    ]
+    tasks = [create_task(c.start_job(job_id=cluster_job_map[tn]["id"]), name=tn) for tn, c in clients.items()]
     await gather(*tasks)
     for t in tasks:
         cluster = t.get_name()
@@ -496,10 +513,7 @@ async def show_job_log(
 
     cluster_job_map = await search_and_match_job(clients, executor)
     tasks = [
-        create_task(
-            c.job_logs(job_id=cluster_job_map[tn]["id"], filter_time=f"{start_time_str} - {arw_str}"),
-            name=tn,
-        )
+        create_task(c.job_logs(job_id=cluster_job_map[tn]["id"], filter_time=f"{start_time_str} - {arw_str}"), name=tn)
         for tn, c in clients.items()
     ]
     await gather(*tasks)

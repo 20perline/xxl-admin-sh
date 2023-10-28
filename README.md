@@ -21,9 +21,13 @@ xxl
 #### 帮助命令
 
 ```shell
-help
+help # 可显示所有可用命令
+
+# 此外任意命令、子命令可通过-h选项显示帮助信息，比如
+job -h
+group -h
 ```
-可显示所有可用命令
+
 
 #### 配置命令
 
@@ -66,10 +70,25 @@ job list DemoJobHanlder #精确搜索
 ```shell
 job run DemoJobHanlder
 job run DemoJobHanlder -a #所有集群都执行
+job debug DemoJobHanlder # 自动使用本地地址触发
 ```
 
+#### 新增任务
 
-其它更多用法请查看帮助信息
 ```shell
-xxx_command -h
+job add --exec DemoJobHanlder --group 10 --cron "0 0 0 * * ？" --title 示例任务2
+
+```
+
+#### 更新任务
+
+```shell
+job update DemoJobHanlder --cron "0 0 10 * * ？" --title 示例任务2
+```
+
+#### 开启、停止任务
+
+```shell
+job on DemoJobHanlder #开启
+job off DemoJobHanlder #停止
 ```
