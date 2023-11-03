@@ -332,7 +332,7 @@ async def debug_job(
         groups = await clients[default_cluster].list_group()
         ip = socket.gethostbyname(socket.gethostname())
         registry_list = set(
-            r for group in groups if group["registryList"] is not None for r in group["registryList"].split(",")
+            r for group in groups if group["registryList"] is not None for r in group["registryList"]
         )
         address = next((x for x in registry_list if ip in x), None)
         # 缓存起来
