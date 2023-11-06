@@ -331,9 +331,7 @@ async def debug_job(
     if address is None:
         groups = await clients[default_cluster].list_group()
         ip = socket.gethostbyname(socket.gethostname())
-        registry_list = set(
-            r for group in groups if group["registryList"] is not None for r in group["registryList"]
-        )
+        registry_list = set(r for group in groups if group["registryList"] is not None for r in group["registryList"])
         address = next((x for x in registry_list if ip in x), None)
         # 缓存起来
         cmd_ctx.local_registry = address
@@ -422,7 +420,12 @@ async def update_job(
         title = f"{title_prefix}{title}" if title_prefix else title
         author = author or cur_job["author"]
 
-        task = create_task(client.update_job(job_id, job_group, executor, title, cron, author), name=cluster)
+        task = create_task(
+            client.update_job(
+                job_id=job_id, job_group=job_group, job_desc=title, executor=executor, cron=cron, author=author
+            ),
+            name=cluster,
+        )
         tasks.append(task)
 
     await gather(*tasks)
