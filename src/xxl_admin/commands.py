@@ -416,13 +416,13 @@ async def update_job(
         job_group = cur_job["jobGroup"]
         executor = cur_job["executorHandler"]
         cron = cron or cur_job.get("jobCron", None) or cur_job.get("scheduleConf", None)
-        title = title or cur_job["jobDesc"]
-        title = f"{title_prefix}{title}" if title_prefix else title
+        new_title = title or cur_job["jobDesc"]
+        new_title = f"{title_prefix}{new_title}" if title_prefix and title_prefix not in new_title else new_title
         author = author or cur_job["author"]
 
         task = create_task(
             client.update_job(
-                job_id=job_id, job_group=job_group, job_desc=title, executor=executor, cron=cron, author=author
+                job_id=job_id, job_group=job_group, job_desc=new_title, executor=executor, cron=cron, author=author
             ),
             name=cluster,
         )
